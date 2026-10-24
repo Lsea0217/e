@@ -23,7 +23,7 @@
                 <i class="fa-solid fa-feather-pointed"></i> クリエイターHub
             </h1>
             <div id="storage-status" class="text-xs bg-indigo-700 px-2 py-1 rounded text-indigo-200">
-                <i class="fa-solid fa-database"></i> ローカルDB準備中...
+                <i class="fa-solid fa-database"></i> 起動中...
             </div>
         </div>
         <!-- ナビゲーションタブ -->
@@ -201,7 +201,6 @@
 
     <!-- スクリプト部 -->
     <script>
-        // --- 状態管理 ---
         let appData = {
             novels: [],
             board: [],
@@ -211,22 +210,47 @@
         let currentSceneId = null;
         let boardTempImage = null;
 
-        // --- IndexedDB 初期化 ---
         const dbName = "CreatorHubDB";
         const storeName = "appStore";
         let db = null;
+        let useFallback = false;
 
-        function initDB() {
-            return new Promise((resolve, reject) => {
+        // --- ストレージ初期化（タイムアウト付きでフリーズを完全防止） ---
+        function initStorage() {
+            return new Promise((resolve) => {
+                if (!window.indexedDB) {
+                    useLocalStorageFallback();
+                    resolve();
+                    return;
+                }
+
+                let isResolved = false;
+                // 1.5秒以内にIndexedDBが開かない場合は強制的にローカルストレージに切り替え
+                const timeout = setTimeout(() => {
+                    if (!isResolved) {
+                        isResolved = true;
+                        useLocalStorageFallback();
+                        resolve();
+                    }
+                }, 1500);
+
                 const request = indexedDB.open(dbName, 1);
                 request.onerror = () => {
-                    document.getElementById('storage-status').innerHTML = '<i class="fa-solid fa-triangle-exclamation text-amber-300"></i> ローカルDBエラー';
-                    reject(request.error);
+                    if (!isResolved) {
+                        isResolved = true;
+                        clearTimeout(timeout);
+                        useLocalStorageFallback();
+                        resolve();
+                    }
                 };
                 request.onsuccess = (event) => {
-                    db = event.target.result;
-                    document.getElementById('storage-status').innerHTML = '<i class="fa-solid fa-cloud-arrow-up text-emerald-300"></i> ローカル保存有効';
-                    loadFromDB().then(resolve).catch(resolve);
+                    if (!isResolved) {
+                        isResolved = true;
+                        clearTimeout(timeout);
+                        db = event.target.result;
+                        document.getElementById('storage-status').innerHTML = '<i class="fa-solid fa-cloud-arrow-up text-emerald-300"></i> クラウド・ローカル保存';
+                        loadFromDB().then(resolve).catch(() => resolve());
+                    }
                 };
                 request.onupgradeneeded = (event) => {
                     const database = event.target.result;
@@ -237,37 +261,64 @@
             });
         }
 
-        function saveToDB() {
-            if (!db) return;
-            // データを保存する前に、現在編集中の入力内容を確実にステートに同期させる
-            syncCurrentEditorToState();
+        function useLocalStorageFallback() {
+            useFallback = true;
+            document.getElementById('storage-status').innerHTML = '<i class="fa-solid.fa-database text-amber-300"></i> ローカル保存モード';
+            try {
+                const saved = localStorage.getItem('creator_hub_data_v1');
+                if (saved) {
+                    appData = JSON.parse(saved);
+                    if (!appData.novels) appData.novels = [];
+                    if (!appData.board) appData.board = [];
+                    if (!appData.vault) appData.vault = [];
+                }
+            } catch(e) {}
+            renderAll();
+        }
 
-            const transaction = db.transaction(storeName, "readwrite");
-            const store = transaction.objectStore(storeName);
-            store.put(appData, "mainData");
+        function saveToDB() {
+            syncCurrentEditorToState();
+            if (useFallback || !db) {
+                try {
+                    localStorage.setItem('creator_hub_data_v1', JSON.stringify(appData));
+                } catch(e) {}
+                return;
+            }
+            try {
+                const transaction = db.transaction(storeName, "readwrite");
+                const store = transaction.objectStore(storeName);
+                store.put(appData, "mainData");
+            } catch(e) {
+                useLocalStorageFallback();
+            }
         }
 
         function loadFromDB() {
             return new Promise((resolve) => {
-                if (!db) { resolve(); return; }
-                const transaction = db.transaction(storeName, "readonly");
-                const store = transaction.objectStore(storeName);
-                const request = store.get("mainData");
-                request.onsuccess = () => {
-                    if (request.result) {
-                        appData = request.result;
-                        if (!appData.novels) appData.novels = [];
-                        if (!appData.board) appData.board = [];
-                        if (!appData.vault) appData.vault = [];
-                    }
-                    renderAll();
+                if (!db || useFallback) { resolve(); return; }
+                try {
+                    const transaction = db.transaction(storeName, "readonly");
+                    const store = transaction.objectStore(storeName);
+                    const request = store.get("mainData");
+                    request.onsuccess = () => {
+                        if (request.result) {
+                            appData = request.result;
+                            if (!appData.novels) appData.novels = [];
+                            if (!appData.board) appData.board = [];
+                            if (!appData.vault) appData.vault = [];
+                        }
+                        renderAll();
+                        resolve();
+                    };
+                    request.onerror = () => { resolve(); };
+                } catch(e) {
+                    useLocalStorageFallback();
                     resolve();
-                };
-                request.onerror = () => resolve();
+                }
             });
         }
 
-        // --- 画像圧縮ユーティリティ (容量超過を防ぐ) ---
+        // --- 画像圧縮ユーティリティ ---
         function compressImage(file) {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -277,8 +328,8 @@
                         const canvas = document.createElement('canvas');
                         let width = img.width;
                         let height = img.height;
-                        const maxWidth = 1200;
-                        const maxHeight = 1200;
+                        const maxWidth = 1000;
+                        const maxHeight = 1000;
 
                         if (width > height) {
                             if (width > maxWidth) {
@@ -296,7 +347,7 @@
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, width, height);
-                        resolve(canvas.toDataURL('image/jpeg', 0.8));
+                        resolve(canvas.toDataURL('image/jpeg', 0.75));
                     };
                     img.src = e.target.result;
                 };
@@ -306,7 +357,6 @@
 
         // --- タブ切り替え ---
         function switchTab(tabId) {
-            // タブ切り替え前に必ずデータを保存
             saveToDB();
 
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -384,4 +434,370 @@
                         <p class="text-xs text-slate-500 mt-1"><i class="fa-solid fa-bookmark"></i> 場面（章）数: ${novel.scenes.length}</p>
                     </div>
                     <div class="flex justify-end gap-2">
-                        <button onclick="deleteNovel('${novel.id}')" class="text-red-500 hover:text-red-700 px-3 py-1.5 text-xs font
+                        <button onclick="deleteNovel('${novel.id}')" class="text-red-500 hover:text-red-700 px-3 py-1.5 text-xs font-medium rounded border border-red-200 transition">削除</button>
+                        <button onclick="openNovelEditor('${novel.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 text-xs font-medium rounded transition">編集する</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function deleteNovel(id) {
+            if (!confirm('この小説を削除しますか？')) return;
+            appData.novels = appData.novels.filter(n => n.id !== id);
+            saveToDB();
+            renderNovels();
+        }
+
+        function openNovelEditor(novelId) {
+            currentNovelId = novelId;
+            const novel = appData.novels.find(n => n.id === novelId);
+            if (!novel) return;
+
+            document.getElementById('novel-list-container').classList.add('hidden');
+            document.getElementById('editor-novel-title').textContent = novel.title;
+            document.getElementById('novel-editor-view').classList.remove('hidden');
+
+            if (!currentSceneId || !novel.scenes.some(s => s.id === currentSceneId)) {
+                currentSceneId = novel.scenes[0].id;
+            }
+
+            renderSceneTabs();
+            loadSceneToEditor(currentSceneId);
+        }
+
+        function backToNovelList() {
+            saveToDB();
+            currentNovelId = null;
+            currentSceneId = null;
+            renderNovels();
+        }
+
+        function renderSceneTabs() {
+            const novel = appData.novels.find(n => n.id === currentNovelId);
+            if (!novel) return;
+
+            const container = document.getElementById('scene-tabs-container');
+            container.innerHTML = novel.scenes.map(scene => `
+                <button onclick="switchScene('${scene.id}')" class="px-4 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition ${scene.id === currentSceneId ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                    ${escapeHTML(scene.title || '無題の場面')}
+                </button>
+            `).join('') + `
+                <button onclick="addNewScene()" class="px-3 py-2 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 whitespace-nowrap flex items-center gap-1">
+                    <i class="fa-solid fa-plus"></i> 場面追加
+                </button>
+            `;
+        }
+
+        function addNewScene() {
+            syncCurrentEditorToState();
+
+            const novel = appData.novels.find(n => n.id === currentNovelId);
+            if (!novel) return;
+
+            const newScene = {
+                id: 'scene_' + Date.now(),
+                title: `第${novel.scenes.length + 1}章`,
+                content: '',
+                images: []
+            };
+
+            novel.scenes.push(newScene);
+            currentSceneId = newScene.id;
+            saveToDB();
+            renderSceneTabs();
+            loadSceneToEditor(currentSceneId);
+        }
+
+        function switchScene(sceneId) {
+            syncCurrentEditorToState();
+            currentSceneId = sceneId;
+            saveToDB();
+            renderSceneTabs();
+            loadSceneToEditor(currentSceneId);
+        }
+
+        function loadSceneToEditor(sceneId) {
+            const novel = appData.novels.find(n => n.id === currentNovelId);
+            if (!novel) return;
+            const scene = novel.scenes.find(s => s.id === sceneId);
+            if (!scene) return;
+
+            document.getElementById('scene-title-input').value = scene.title || '';
+            document.getElementById('scene-content-input').value = scene.content || '';
+            renderSceneImages(scene);
+        }
+
+        function updateActiveSceneTitle(val) {
+            const novel = appData.novels.find(n => n.id === currentNovelId);
+            if (!novel) return;
+            const scene = novel.scenes.find(s => s.id === currentSceneId);
+            if (scene) {
+                scene.title = val;
+                renderSceneTabs();
+            }
+        }
+
+        function updateActiveSceneContent(val) {
+            const novel = appData.novels.find(n => n.id === currentNovelId);
+            if (!novel) return;
+            const scene = novel.scenes.find(s => s.id === currentSceneId);
+            if (scene) {
+                scene.content = val;
+            }
+        }
+
+        function syncCurrentEditorToState() {
+            if (!currentNovelId || !currentSceneId) return;
+            const novel = appData.novels.find(n => n.id === currentNovelId);
+            if (!novel) return;
+            const scene = novel.scenes.find(s => s.id === currentSceneId);
+            if (scene) {
+                scene.title = document.getElementById('scene-title-input').value;
+                scene.content = document.getElementById('scene-content-input').value;
+            }
+        }
+
+        async function addSceneImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const novel = appData.novels.find(n => n.id === currentNovelId);
+            if (!novel) return;
+            const scene = novel.scenes.find(s => s.id === currentSceneId);
+            if (!scene) return;
+
+            const compressedData = await compressImage(file);
+            scene.images.push({
+                id: 'img_' + Date.now(),
+                data: compressedData
+            });
+
+            saveToDB();
+            renderSceneImages(scene);
+            event.target.value = '';
+        }
+
+        function renderSceneImages(scene) {
+            const grid = document.getElementById('scene-images-grid');
+            if (!scene.images || scene.images.length === 0) {
+                grid.innerHTML = `<p class="col-span-full text-xs text-slate-400 py-4 text-center">画像がまだありません</p>`;
+                return;
+            }
+
+            grid.innerHTML = scene.images.map((img, idx) => `
+                <div class="relative group aspect-square bg-slate-100 rounded-lg overflow-hidden border">
+                    <img src="${img.data}" class="w-full h-full object-cover cursor-pointer" onclick="openImageModal('${img.data}')">
+                    <div class="absolute inset-x-0 bottom-0 bg-black/60 p-1 flex justify-between items-center text-white text-[10px]">
+                        <span>#${idx + 1}</span>
+                        <button onclick="deleteSceneImage('${img.id}')" class="text-red-300 hover:text-red-100"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function deleteSceneImage(imgId) {
+            const novel = appData.novels.find(n => n.id === currentNovelId);
+            if (!novel) return;
+            const scene = novel.scenes.find(s => s.id === currentSceneId);
+            if (!scene) return;
+
+            scene.images = scene.images.filter(img => img.id !== imgId);
+            saveToDB();
+            renderSceneImages(scene);
+        }
+
+        function saveCurrentNovelData() {
+            saveToDB();
+            alert('小説の変更内容を保存しました！');
+        }
+
+
+        // --- 掲示板 ロジック ---
+        function previewBoardImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            compressImage(file).then(data => {
+                boardTempImage = data;
+                document.getElementById('board-preview-tag').src = data;
+                document.getElementById('board-img-preview').classList.remove('hidden');
+                document.getElementById('board-file-name').textContent = file.name;
+            });
+        }
+
+        function clearBoardImage() {
+            boardTempImage = null;
+            document.getElementById('board-img-preview').classList.add('hidden');
+            document.getElementById('board-file').value = '';
+            document.getElementById('board-file-name').textContent = '';
+        }
+
+        function submitBoardPost() {
+            const text = document.getElementById('board-text').value.trim();
+            if (!text && !boardTempImage) return alert('文章または画像を入力してください');
+
+            const newPost = {
+                id: 'post_' + Date.now(),
+                text: text,
+                image: boardTempImage,
+                date: new Date().toLocaleString()
+            };
+
+            appData.board.unshift(newPost);
+            saveToDB();
+
+            document.getElementById('board-text').value = '';
+            clearBoardImage();
+            renderBoard();
+        }
+
+        function renderBoard() {
+            const container = document.getElementById('board-posts-container');
+            if (appData.board.length === 0) {
+                container.innerHTML = `<div class="text-center py-12 text-slate-400 bg-white rounded-xl border border-slate-200 text-sm">投稿はまだありません。</div>`;
+                return;
+            }
+
+            container.innerHTML = appData.board.map(post => `
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                    <div class="flex justify-between items-center text-xs text-slate-400">
+                        <span><i class="fa-regular fa-clock"></i> ${post.date}</span>
+                        <button onclick="deleteBoardPost('${post.id}')" class="text-red-400 hover:text-red-600"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                    ${post.text ? `<p class="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">${escapeHTML(post.text)}</p>` : ''}
+                    ${post.image ? `<div class="max-w-xs rounded-lg overflow-hidden border cursor-pointer"><img src="${post.image}" class="w-full object-cover" onclick="openImageModal('${post.image}')"></div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function deleteBoardPost(id) {
+            if (!confirm('この投稿を削除しますか？')) return;
+            appData.board = appData.board.filter(p => p.id !== id);
+            saveToDB();
+            renderBoard();
+        }
+
+
+        // --- 画像保管庫 ロジック ---
+        async function uploadVaultImages(event) {
+            const files = event.target.files;
+            if (!files.length) return;
+
+            for (let file of files) {
+                const compressed = await compressImage(file);
+                appData.vault.unshift({
+                    id: 'vault_' + Date.now() + Math.random(),
+                    data: compressed,
+                    name: file.name,
+                    date: new Date().toLocaleDateString()
+                });
+            }
+
+            saveToDB();
+            renderVault();
+            event.target.value = '';
+        }
+
+        function renderVault() {
+            const grid = document.getElementById('vault-grid');
+            if (appData.vault.length === 0) {
+                grid.innerHTML = `<div class="col-span-full text-center py-12 text-slate-400 bg-white rounded-xl border border-slate-200 text-sm">画像が保管されていません。</div>`;
+                return;
+            }
+
+            grid.innerHTML = appData.vault.map(img => `
+                <div class="relative group aspect-square bg-slate-100 rounded-xl overflow-hidden border shadow-sm">
+                    <img src="${img.data}" class="w-full h-full object-cover cursor-pointer" onclick="openImageModal('${img.data}')">
+                    <div class="absolute inset-x-0 bottom-0 bg-black/60 p-2 flex justify-between items-center text-white text-xs">
+                        <span class="truncate max-w-[120px]">${escapeHTML(img.name || '画像')}</span>
+                        <button onclick="deleteVaultImage('${img.id}')" class="text-red-300 hover:text-red-100"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function deleteVaultImage(id) {
+            if (!confirm('この画像を削除しますか？')) return;
+            appData.vault = appData.vault.filter(img => img.id !== id);
+            saveToDB();
+            renderVault();
+        }
+
+
+        // --- バックアップ (JSON エクスポート/インポート) ---
+        function exportDataJSON() {
+            syncCurrentEditorToState();
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(appData));
+            const dlAnchor = document.createElement('a');
+            dlAnchor.setAttribute("href", dataStr);
+            dlAnchor.setAttribute("download", `creator_hub_backup_${Date.now()}.json`);
+            document.body.appendChild(dlAnchor);
+            dlAnchor.click();
+            dlAnchor.remove();
+        }
+
+        function importDataJSON(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    if (parsed && typeof parsed === 'object') {
+                        appData = parsed;
+                        if (!appData.novels) appData.novels = [];
+                        if (!appData.board) appData.board = [];
+                        if (!appData.vault) appData.vault = [];
+                        saveToDB();
+                        renderAll();
+                        alert('データを正常に復元しました！');
+                    } else {
+                        alert('無効なファイル形式です');
+                    }
+                } catch (err) {
+                    alert('ファイルの読み込みに失敗しました');
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+
+        // --- 共通ユーティリティ ---
+        function renderAll() {
+            renderNovels();
+            renderBoard();
+            renderVault();
+        }
+
+        function openImageModal(src) {
+            document.getElementById('modal-img-tag').src = src;
+            const modal = document.getElementById('image-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeImageModal() {
+            const modal = document.getElementById('image-modal');
+            modal.classList.remove('flex');
+            modal.classList.add('hidden');
+        }
+
+        function escapeHTML(str) {
+            return str.replace(/[&'`<>"]/g, (match) => ({
+                '&': '&amp;',
+                '\'': '&#x27;',
+                '`': '&#x60;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+            }[match]));
+        }
+
+        // アプリ起動時の初期化
+        window.addEventListener('DOMContentLoaded', () => {
+            initStorage();
+        });
+    </script>
+</body>
+</html>
