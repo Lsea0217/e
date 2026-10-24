@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="ja" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Creator Hub Cloud - 小説・掲示板・保管庫（クラウド保存）</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Serif+JP:wght@400;600&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        serif: ['Noto Serif JP', 'serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-novel { font-family: 'Noto Serif JP', serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Loading Overlay */
+        #loading-overlay {
+            transition: opacity 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-full flex flex-col antialiased">
+
+    <!-- 全画面ロード中オーバーレイ -->
+    <div id="loading-overlay" class="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center">
+        <svg class="animate-spin -ml-1 mr-3 h-10 w-10 text-indigo-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p class="text-slate-600 font-medium">クラウドに接続中...</p>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+    <!-- Custom Modal for Confirmation -->
+    <div id="custom-confirm-modal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+            <h3 id="confirm-title" class="text-lg font-bold text-slate-900">確認</h3>
+            <p id="confirm-message" class="text-sm text-slate-600">本当に実行しますか？</p>
+            <div class="flex justify-end space-x-2 pt-2">
+                <button id="confirm-cancel-btn" class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">キャンセル</button>
+                <button id="confirm-ok-btn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium shadow-sm">実行する</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header / Navigation -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-indigo-600 text-white p-2 rounded-xl shadow-md">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-base sm:text-lg font-bold bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">Creator Hub Cloud</h1>
+                        <p class="text-[10px] sm:text-xs text-slate-400 flex items-center">
+                            <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>
+                            クラウド同期中
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Navigation Tabs -->
+                <div class="flex items-center space-x-2 sm:space-x-4">
+                    <nav class="flex space-x-1 sm:space-x-2 items-center">
+                        <button onclick="switchTab('novel')" id="tab-btn-novel" class="px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors bg-indigo-50 text-indigo-700 flex items-center space-x-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                            <span class="hidden md:inline">小説スタジオ</span>
+                            <span class="md:hidden">小説</span>
+                        </button>
+                        <button onclick="switchTab('bbs')" id="tab-btn-bbs" class="px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center space-x-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"></path></svg>
+                            <span class="hidden md:inline">画像掲示板</span>
+                            <span class="md:hidden">掲示板</span>
+                        </button>
+                        <button onclick="switchTab('vault')" id="tab-btn-vault" class="px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center space-x-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                            <span class="hidden md:inline">画像保管庫</span>
+                            <span class="md:hidden">保管庫</span>
+                        </button>
+                    </nav>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 overflow-y-auto">
+
+        <!-- ================= 1. 小説セクション ================= -->
+        <div id="section-novel" class="tab-content space-y-6">
+            <div id="novel-list-view">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-800">小説作品一覧</h2>
+                        <p class="text-sm text-slate-500 mt-1">場面や段落ごとに画像を差し込んで、物語を作成。クラウドに自動保存されます。</p>
+                    </div>
+                    <button onclick="openNovelEditor()" class="inline-flex items-center justify-center px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl shadow-md transition-all space-x-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        <span>新しく小説を書く</span>
+                    </button>
+                </div>
+                <div id="novels-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
+                    <!-- 動的挿入 -->
+                </div>
+            </div>
+
+            <!-- 小説エディタービュー -->
+            <div id="novel-editor-view" class="hidden bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                    <h3 id="editor-heading" class="text-xl font-bold text-slate-800">小説の作成</h3>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="closeNovelEditor()" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">タイトル</label>
+                        <input type="text" id="novel-title-input" placeholder="作品のタイトルを入力..." class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">作者名</label>
+                        <input type="text" id="novel-author-input" placeholder="作者名..." class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" value="匿名作家">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">あらすじ</label>
+                    <textarea id="novel-synopsis-input" rows="3" placeholder="物語のあらすじや紹介文を入力..." class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"></textarea>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h4 class="font-semibold text-slate-700">本文ブロック構成（文章と画像を自由に配置）</h4>
+                        <div class="flex space-x-2">
+                            <button onclick="addNovelBlock('text')" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors flex items-center space-x-1">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                <span>段落を追加</span>
+                            </button>
+                            <button onclick="addNovelBlock('image')" class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg transition-colors flex items-center space-x-1">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                <span>画像を差し込む</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="novel-blocks-container" class="space-y-3 min-h-[150px] p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                        <!-- ブロック動的挿入 -->
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center pt-4 border-t border-slate-100">
+                    <button onclick="deleteCurrentNovel()" id="delete-novel-btn" class="hidden px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-sm font-medium">作品を削除</button>
+                    <div class="flex space-x-3 ml-auto">
+                        <button onclick="closeNovelEditor()" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">キャンセル</button>
+                        <button onclick="saveNovelExplicit()" id="save-novel-btn" class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md text-sm font-medium flex items-center space-x-2">
+                            <span>クラウドに保存する</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 小説リーダービュー -->
+            <div id="novel-reader-view" class="hidden max-w-3xl mx-auto bg-white p-6 sm:p-12 rounded-2xl shadow-sm border border-slate-200 space-y-8">
+                <div class="flex justify-between items-center">
+                    <button onclick="closeNovelReader()" class="inline-flex items-center text-sm font-medium text-slate-500 hover:text-indigo-600 space-x-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                        <span>一覧に戻る</span>
+                    </button>
+                    <button onclick="editCurrentNovel()" id="reader-edit-btn" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg">編集する</button>
+                </div>
+                <div class="text-center space-y-3 border-b border-slate-100 pb-8">
+                    <h2 id="reader-title" class="text-3xl font-bold font-novel text-slate-900"></h2>
+                    <p id="reader-author" class="text-sm text-slate-500"></p>
+                    <div id="reader-synopsis" class="text-sm text-slate-600 bg-slate-50 p-4 rounded-xl italic max-w-xl mx-auto"></div>
+                </div>
+                <div id="reader-content" class="space-y-6 font-novel text-lg leading-relaxed text-slate-700">
+                    <!-- リーダー本文 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= 2. 掲示板セクション ================= -->
+        <div id="section-bbs" class="tab-content hidden space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 h-fit space-y-4">
+                    <h3 class="text-lg font-bold text-slate-800 flex items-center space-x-2">
+                        <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                        <span>新規投稿する</span>
+                    </h3>
+                    <form id="bbs-form" onsubmit="handleBbsSubmit(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">お名前</label>
+                            <input type="text" id="bbs-name" required placeholder="ハンドルネーム" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">タイトル</label>
+                            <input type="text" id="bbs-title" required placeholder="記事のタイトル" class="w-full px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">本文</label>
+                            <textarea id="bbs-content" required rows="4" placeholder="いま何してる？自由に書いてね..." class="w-full px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">画像を添付（自動圧縮）</label>
+                            <input type="file" id="bbs-image-input" accept="image/*" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer" onchange="handleBbsImageSelect(event)">
+                            <div id="bbs-image-preview-container" class="mt-2 hidden relative">
+                                <img id="bbs-image-preview" src="" class="h-24 w-auto rounded-xl object-cover border border-slate-200">
+                                <button type="button" onclick="clearBbsImage()" class="absolute top-1 left-1 bg-black/60 text-white rounded-full p-1 text-xs hover:bg-black">✕</button>
+                            </div>
+                        </div>
+                        <button type="submit" id="bbs-submit-btn" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl shadow-md text-sm transition-all flex justify-center items-center">
+                            <span>投稿する</span>
+                        </button>
+                    </form>
+                </div>
+
+                <div class="lg:col-span-2 space-y-4">
+                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-center">
+                        <h3 class="font-bold text-slate-800">タイムライン (全ユーザー共有)</h3>
+                        <span id="bbs-count" class="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-medium">0件</span>
+                    </div>
+                    <div id="bbs-timeline" class="space-y-4">
+                        <!-- 掲示板タイムライン動的挿入 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= 3. 保管庫セクション ================= -->
+        <div id="section-vault" class="tab-content hidden space-y-6">
+            <div class="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-800">画像保管庫（ギャラリー）</h2>
+                    <p class="text-sm text-slate-500 mt-1">クラウドデータベースに画像を保存します。1MB以下になるよう自動でリサイズ＆圧縮されます。</p>
+                </div>
+
+                <div class="border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center hover:border-indigo-500 transition-colors bg-slate-50 relative">
+                    <input type="file" id="vault-file-input" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="handleVaultUpload(event)">
+                    <div class="flex flex-col items-center pointer-events-none space-y-3">
+                        <div class="p-3 bg-white rounded-2xl shadow-sm border border-slate-200 text-indigo-600">
+                            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                        </div>
+                        <div>
+                            <p class="text-sm font-medium text-slate-700">クリックして画像をアップロード、またはドラッグ＆ドロップ</p>
+                            <p class="text-xs text-slate-400 mt-1">クラウドへ安全に永続保存されます</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                    <h3 class="font-bold text-slate-800">保存された画像一覧</h3>
+                    <span id="vault-count" class="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-medium">0枚</span>
+                </div>
+                <div id="vault-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                    <!-- ギャラリー動的挿入 -->
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- 汎用画像プレビューモーダル -->
+    <div id="image-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4" onclick="closeImageModal()">
+        <div class="relative max-w-4xl max-h-[90vh] flex flex-col items-center" onclick="event.stopPropagation()">
+            <button onclick="closeImageModal()" class="absolute -top-12 right-0 text-white hover:text-slate-300 p-2">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            <img id="modal-img" src="" class="max-w-full max-h-[80vh] object-contain rounded-xl shadow-2xl">
+            <p id="modal-caption" class="text-white text-sm mt-4 font-medium text-center"></p>
+        </div>
+    </div>
+
+    <!-- Firebase SDK Imports & Application Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, collection, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global environment variables provided by the system
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-creator-hub';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "dummy", authDomain: "dummy.firebaseapp.com", projectId: "dummy"
+        };
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Firebase Initialization
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        
+        let currentUser = null;
+
+        // State Management
+        let novels = [];
+        let bbsPosts = [];
+        let vaultImages = [];
+
+        // Editor States
+        let currentEditingNovelId = null;
+        let activeNovelBlocks = [];
+        let bbsTempImage = '';
+
+        // DOM Elements
+        const loadingOverlay = document.getElementById('loading-overlay');
+
+        // Main Initialization Function
+        async function initApp() {
+            try {
+                // 1. Authenticate FIRST
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                currentUser = auth.currentUser;
+
+                if (currentUser) {
+                    // 2. Start Listeners ONLY after authentication
+                    setupRealtimeListeners();
+                }
+
+                // Hide Loading Screen
+                loadingOverlay.style.opacity = '0';
+                setTimeout(() => loadingOverlay.style.display = 'none', 300);
+
+            } catch (error) {
+                console.error("Firebase Initialization Error:", error);
+                showToast("データベースへの接続に失敗しました", "error");
+                loadingOverlay.style.display = 'none';
+            }
+        }
+
+        // Realtime Data Sync
+        function setupRealtimeListeners() {
+            if (!currentUser) return;
+
+            // Novels - Rules 1 & 2: Strict path, no complex queries (fetch all, sort in memory)
+            const novelsRef = collection(db, 'artifacts', appId, 'public', 'data', 'novels');
+            onSnapshot(novelsRef, (snapshot) => {
+                novels = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                novels.sort((a, b) => b.updatedAt - a.updatedAt);
+                renderNovelsList();
+            }, (error) => {
+                console.error("Novels sync error:", error);
+            });
+
+            // BBS
+            const bbsRef = collection(db, 'artifacts', appId, 'public', 'data', 'bbs');
+            onSnapshot(bbsRef, (snapshot) => {
+                bbsPosts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                bbsPosts.sort((a, b) => b.createdAt - a.createdAt);
+                renderBbsTimeline();
+            }, (error) => {
+                console.error("BBS sync error:", error);
+            });
+
+            // Vault
+            const vaultRef = collection(db, 'artifacts', appId, 'public', 'data', 'vault');
+            onSnapshot(vaultRef, (snapshot) => {
+                vaultImages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                vaultImages.sort((a, b) => b.createdAt - a.createdAt);
+                renderVaultGallery();
+            }, (error) => {
+                console.error("Vault sync error:", error);
+            });
+        }
+
+        // ================= Utilities =================
+        window.showToast = function(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white pointer-events-auto transition-all transform translate-y-2 opacity-0 flex items-center space-x-2 ${type === 'error' ? 'bg-rose-600' : 'bg-slate-900'}`;
+            toast.innerHTML = `<span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.classList.remove('translate-y-2', 'opacity-0'), 10);
+            setTimeout(() => {
+                toast.classList.add('translate-y-2', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        window.showCustomConfirm = function(title, message, onOk) {
+            const modal = document.getElementById('custom-confirm-modal');
+            document.getElementById('confirm-title').innerText = title;
+            document.getElementById('confirm-message').innerText = message;
+            modal.classList.remove('hidden');
+            const okBtn = document.getElementById('confirm-ok-btn');
+            const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+            const cleanUp = () => {
+                modal.classList.add('hidden');
+                okBtn.onclick = null;
+                cancelBtn.onclick = null;
+            };
+
+            okBtn.onclick = () => { cleanUp(); onOk(); };
+            cancelBtn.onclick = cleanUp;
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>"\']/g, function(match) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[match];
+            });
+        }
+
+        window.switchTab = function(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('nav button').forEach(el => {
+                el.className = "px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center space-x-1";
+            });
+            document.getElementById(`section-${tabName}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`tab-btn-${tabName}`);
+            activeBtn.className = "px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors bg-indigo-50 text-indigo-700 flex items-center space-x-1";
+        }
+
+        // Image Compression (Targeting < 800KB for Firestore document limit)
+        function compressImage(file, maxWidth = 800, quality = 0.6) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > maxWidth) {
+                            height = Math.round((height * maxWidth) / width);
+                            width = maxWidth;
+                        }
+
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+
+                        // Compress aggressively to ensure it fits in Firestore's 1MB doc limit
+                        const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+                        
+                        // Approximate size check
+                        const sizeKB = Math.round((compressedDataUrl.length * 3) / 4 / 1024);
+                        if (sizeKB > 900) {
+                            // If still too large, compress further
+                            const ultraCompressed = canvas.toDataURL('image/jpeg', 0.4);
+                            resolve({ url: ultraCompressed, sizeKB: Math.round((ultraCompressed.length * 3) / 4 / 1024) });
+                        } else {
+                            resolve({ url: compressedDataUrl, sizeKB });
+                        }
+                    };
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+
+        // ================= 1. Novel Logic =================
+        window.openNovelEditor = function(novelId = null) {
+            currentEditingNovelId = novelId;
+            document.getElementById('novel-list-view').classList.add('hidden');
+            document.getElementById('novel-editor-view').classList.remove('hidden');
+            document.getElementById('novel-reader-view').classList.add('hidden');
+
+            const deleteBtn = document.getElementById('delete-novel-btn');
+
+            if (novelId) {
+                const novel = novels.find(n => n.id === novelId);
+                if (novel) {
+                    document.getElementById('editor-heading').innerText = "小説の編集";
+                    document.getElementById('novel-title-input').value = novel.title || '';
+                    document.getElementById('novel-author-input').value = novel.author || '匿名作家';
+                    document.getElementById('novel-synopsis-input').value = novel.synopsis || '';
+                    activeNovelBlocks = JSON.parse(JSON.stringify(novel.blocks || []));
+                    deleteBtn.classList.remove('hidden');
+                }
+            } else {
+                document.getElementById('editor-heading').innerText = "新しく小説を書く";
+                document.getElementById('novel-title-input').value = '';
+                document.getElementById('novel-author-input').value = '匿名作家';
+                document.getElementById('novel-synopsis-input').value = '';
+                activeNovelBlocks = [{ type: 'text', content: '' }];
+                deleteBtn.classList.add('hidden');
+            }
+            renderNovelBlocksEditor();
+        }
+
+        window.closeNovelEditor = function() {
+            document.getElementById('novel-editor-view').classList.add('hidden');
+            document.getElementById('novel-list-view').classList.remove('hidden');
+        }
+
+        window.addNovelBlock = function(type) {
+            activeNovelBlocks.push({ type: type, content: '', caption: '' });
+            renderNovelBlocksEditor();
+        }
+
+        window.removeNovelBlock = function(index) {
+            activeNovelBlocks.splice(index, 1);
+            renderNovelBlocksEditor();
+        }
+
+        window.moveNovelBlock = function(index, direction) {
+            const target = index + direction;
+            if (target < 0 || target >= activeNovelBlocks.length) return;
+            const temp = activeNovelBlocks[index];
+            activeNovelBlocks[index] = activeNovelBlocks[target];
+            activeNovelBlocks[target] = temp;
+            renderNovelBlocksEditor();
+        }
+
+        window.handleBlockImageChange = async function(event, index) {
+            const file = event.target.files[0];
+            if (!file) return;
+            try {
+                showToast("画像を圧縮中...", "success");
+                const { url } = await compressImage(file, 800, 0.6); // Compress for Novel
+                activeNovelBlocks[index].content = url;
+                renderNovelBlocksEditor();
+                showToast("画像を差し込みました！");
+            } catch (err) {
+                console.error(err);
+                showToast("画像の読み込み・圧縮に失敗しました", "error");
+            }
+        }
+
+        function syncTextBlocks() {
+            document.querySelectorAll('#novel-blocks-container textarea').forEach((textarea, idx) => {
+                if (activeNovelBlocks[idx] && activeNovelBlocks[idx].type === 'text') {
+                    activeNovelBlocks[idx].content = textarea.value;
+                }
+            });
+        }
+
+        function renderNovelBlocksEditor() {
+            const container = document.getElementById('novel-blocks-container');
+            if (activeNovelBlocks.length === 0) {
+                container.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">ブロックがありません。段落または画像を追加してください。</p>`;
+                return;
+            }
+            container.innerHTML = activeNovelBlocks.map((block, idx) => `
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3 relative">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-semibold text-slate-400">#${idx + 1} (${block.type === 'text' ? '段落文章' : '挿入画像'})</span>
+                        <div class="flex items-center space-x-1">
+                            <button type="button" onclick="moveNovelBlock(${idx}, -1)" class="p-1 rounded hover:bg-slate-100 text-slate-500" title="上へ">▲</button>
+                            <button type="button" onclick="moveNovelBlock(${idx}, 1)" class="p-1 rounded hover:bg-slate-100 text-slate-500" title="下へ">▼</button>
+                            <button type="button" onclick="removeNovelBlock(${idx})" class="p-1 rounded hover:bg-rose-50 text-rose-500" title="削除">✕</button>
+                        </div>
+                    </div>
+                    ${block.type === 'text' ? `
+                        <textarea rows="3" onchange="syncTextBlocks()" placeholder="物語の文章を入力..." class="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-novel">${block.content || ''}</textarea>
+                    ` : `
+                        <div class="space-y-2">
+                            <input type="file" accept="image/*" onchange="handleBlockImageChange(event, ${idx})" class="w-full text-xs text-slate-500 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+                            ${block.content ? `<img src="${block.content}" class="h-32 object-cover rounded-lg border border-slate-200">` : ''}
+                            <input type="text" value="${block.caption || ''}" onchange="activeNovelBlocks[${idx}].caption = this.value" placeholder="画像の説明・キャプション（任意）" class="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-xs">
+                        </div>
+                    `}
+                </div>
+            `).join('');
+        }
+
+        window.saveNovelExplicit = async function() {
+            if (!currentUser) return;
+            const title = document.getElementById('novel-title-input').value.trim();
+            if (!title) {
+                showToast("タイトルを入力してください", "error");
+                return;
+            }
+            syncTextBlocks();
+
+            const btn = document.getElementById('save-novel-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span>保存中...</span>';
+            btn.disabled = true;
+
+            try {
+                const novelData = {
+                    title,
+                    author: document.getElementById('novel-author-input').value.trim() || '匿名作家',
+                    synopsis: document.getElementById('novel-synopsis-input').value.trim(),
+                    blocks: activeNovelBlocks,
+                    updatedAt: Date.now(),
+                    userId: currentUser.uid
+                };
+
+                if (currentEditingNovelId) {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'novels', currentEditingNovelId), novelData);
+                    showToast("変更をクラウドに保存しました");
+                } else {
+                    novelData.createdAt = Date.now();
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'novels'), novelData);
+                    showToast("新しく作品を公開しました");
+                }
+                closeNovelEditor();
+            } catch (err) {
+                console.error("Save Error:", err);
+                showToast("保存に失敗しました。画像が多すぎる可能性があります。", "error");
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        window.deleteCurrentNovel = function() {
+            if (!currentEditingNovelId || !currentUser) return;
+            showCustomConfirm("小説の削除", "この作品を本当に削除しますか？", async () => {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'novels', currentEditingNovelId));
+                    showToast("作品を削除しました");
+                    closeNovelEditor();
+                } catch(e) {
+                    showToast("削除に失敗しました", "error");
+                }
+            });
+        }
+
+        function renderNovelsList() {
+            const grid = document.getElementById('novels-grid');
+            if (novels.length === 0) {
+                grid.innerHTML = `<div class="col-span-full text-center py-12 text-slate-400 bg-white rounded-2xl border border-slate-200">小説がまだ投稿されていません</div>`;
+                return;
+            }
+            grid.innerHTML = novels.map(novel => `
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between space-y-4 hover:shadow-md transition-shadow">
+                    <div class="space-y-2">
+                        <h3 class="font-bold text-lg text-slate-800 line-clamp-1">${escapeHtml(novel.title)}</h3>
+                        <p class="text-xs text-indigo-600 font-medium">作者: ${escapeHtml(novel.author)}</p>
+                        <p class="text-sm text-slate-500 line-clamp-3">${escapeHtml(novel.synopsis || 'あらすじなし')}</p>
+                    </div>
+                    <div class="flex items-center justify-between pt-4 border-t border-slate-100">
+                        <span class="text-xs text-slate-400">${new Date(novel.updatedAt || novel.createdAt).toLocaleDateString()} 更新</span>
+                        <div class="space-x-2">
+                            <button onclick="readNovel('${novel.id}')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-medium shadow-sm transition-all">読む</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        window.readNovel = function(id) {
+            const novel = novels.find(n => n.id === id);
+            if (!novel) return;
+
+            currentEditingNovelId = id;
+            document.getElementById('novel-list-view').classList.add('hidden');
+            document.getElementById('novel-editor-view').classList.add('hidden');
+            document.getElementById('novel-reader-view').classList.remove('hidden');
+
+            document.getElementById('reader-title').innerText = novel.title;
+            document.getElementById('reader-author').innerText = `著：${novel.author}`;
+            document.getElementById('reader-synopsis').innerText = novel.synopsis ? `【あらすじ】\n${novel.synopsis}` : '';
+
+            const contentContainer = document.getElementById('reader-content');
+            contentContainer.innerHTML = (novel.blocks || []).map(block => {
+                if (block.type === 'text') {
+                    return `<p class="whitespace-pre-wrap indent-1">${escapeHtml(block.content)}</p>`;
+                } else if (block.type === 'image' && block.content) {
+                    return `
+                        <div class="my-8 text-center">
+                            <img src="${block.content}" class="max-h-[500px] w-auto mx-auto rounded-xl shadow-lg cursor-pointer hover:opacity-95 transition-opacity" onclick="openImageModal('${block.content}', '${escapeHtml(block.caption || '')}')">
+                            ${block.caption ? `<p class="text-xs text-slate-500 mt-2 italic">${escapeHtml(block.caption)}</p>` : ''}
+                        </div>
+                    `;
+                }
+                return '';
+            }).join('');
+        }
+
+        window.editCurrentNovel = function() {
+            if (currentEditingNovelId) {
+                openNovelEditor(currentEditingNovelId);
+            }
+        }
+
+        window.closeNovelReader = function() {
+            document.getElementById('novel-reader-view').classList.add('hidden');
+            document.getElementById('novel-list-view').classList.remove('hidden');
+        }
+
+
+        // ================= 2. BBS Logic =================
+        window.handleBbsImageSelect = async function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            try {
+                showToast("画像を圧縮中...", "success");
+                // Compress for BBS
+                const { url } = await compressImage(file, 800, 0.6); 
+                bbsTempImage = url;
+                const previewContainer = document.getElementById('bbs-image-preview-container');
+                document.getElementById('bbs-image-preview').src = bbsTempImage;
+                previewContainer.classList.remove('hidden');
+                showToast("画像準備完了！");
+            } catch (err) {
+                console.error(err);
+                showToast("画像の圧縮に失敗しました", "error");
+            }
+        }
+
+        window.clearBbsImage = function() {
+            bbsTempImage = '';
+            document.getElementById('bbs-image-input').value = '';
+            document.getElementById('bbs-image-preview-container').classList.add('hidden');
+        }
+
+        window.handleBbsSubmit = async function(e) {
+            e.preventDefault();
+            if(!currentUser) return;
+            
+            const btn = document.getElementById('bbs-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span>送信中...</span>';
+
+            const name = document.getElementById('bbs-name').value.trim();
+            const title = document.getElementById('bbs-title').value.trim();
+            const content = document.getElementById('bbs-content').value.trim();
+
+            const postData = {
+                name,
+                title,
+                content,
+                imageUrl: bbsTempImage || '',
+                createdAt: Date.now(),
+                userId: currentUser.uid
+            };
+
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'bbs'), postData);
+                showToast("掲示板へ投稿しました！");
+                document.getElementById('bbs-form').reset();
+                clearBbsImage();
+            } catch (err) {
+                console.error(err);
+                showToast("投稿に失敗しました。画像が大きすぎる可能性があります。", "error");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>投稿する</span>';
+            }
+        }
+
+        function renderBbsTimeline() {
+            const timeline = document.getElementById('bbs-timeline');
+            document.getElementById('bbs-count').innerText = `${bbsPosts.length}件`;
+
+            if (bbsPosts.length === 0) {
+                timeline.innerHTML = `<div class="text-center py-12 text-slate-400 bg-white rounded-2xl border border-slate-200">まだ投稿はありません</div>`;
+                return;
+            }
+
+            timeline.innerHTML = bbsPosts.map(post => `
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                            <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs">
+                                ${escapeHtml(post.name.charAt(0))}
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-sm text-slate-800">${escapeHtml(post.name)}</h4>
+                                <p class="text-[10px] text-slate-400">${new Date(post.createdAt).toLocaleString()}</p>
+                            </div>
+                        </div>
+                        ${(currentUser && currentUser.uid === post.userId) ? `
+                            <button onclick="deleteBbsPost('${post.id}')" class="text-rose-400 hover:text-rose-600 text-xs">削除</button>
+                        ` : ''}
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-slate-900 text-base mb-1">${escapeHtml(post.title)}</h3>
+                        <p class="text-slate-600 text-sm whitespace-pre-wrap">${escapeHtml(post.content)}</p>
+                    </div>
+                    ${post.imageUrl ? `
+                        <div>
+                            <img src="${post.imageUrl}" class="max-h-64 rounded-xl object-cover cursor-pointer hover:opacity-95 transition-opacity border border-slate-200" onclick="openImageModal('${post.imageUrl}', '${escapeHtml(post.title)}')">
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+        
+        window.deleteBbsPost = function(id) {
+            showCustomConfirm("投稿の削除", "この投稿を削除しますか？", async () => {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bbs', id));
+                    showToast("投稿を削除しました");
+                } catch(e) {
+                    showToast("削除に失敗しました", "error");
+                }
+            });
+        }
+
+
+        // ================= 3. Vault Logic =================
+        window.handleVaultUpload = async function(event) {
+            const file = event.target.files[0];
+            if (!file || !currentUser) return;
+
+            try {
+                showToast("圧縮＆クラウドへアップロード中...", "success");
+                // Compress for Vault, slightly higher quality/size than BBS but still limited
+                const { url, sizeKB } = await compressImage(file, 1000, 0.7);
+                
+                const sizeStr = sizeKB > 1024 ? (sizeKB / 1024).toFixed(1) + ' MB' : sizeKB + ' KB';
+
+                const vaultData = {
+                    name: file.name,
+                    size: sizeStr,
+                    imageUrl: url,
+                    createdAt: Date.now(),
+                    userId: currentUser.uid
+                };
+
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'vault'), vaultData);
+                showToast("保管庫にアップロードしました！");
+            } catch (err) {
+                console.error(err);
+                showToast("画像のアップロードに失敗しました", "error");
+            } finally {
+                event.target.value = '';
+            }
+        }
+
+        window.deleteVaultImage = function(id) {
+            showCustomConfirm("画像の削除", "この画像をクラウドから削除しますか？", async () => {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'vault', id));
+                    showToast("画像を削除しました");
+                } catch(e) {
+                    showToast("削除に失敗しました", "error");
+                }
+            });
+        }
+
+        function renderVaultGallery() {
+            const grid = document.getElementById('vault-grid');
+            document.getElementById('vault-count').innerText = `${vaultImages.length}枚`;
+
+            if (vaultImages.length === 0) {
+                grid.innerHTML = `<div class="col-span-full text-center py-12 text-slate-400">画像がありません</div>`;
+                return;
+            }
+
+            grid.innerHTML = vaultImages.map(img => `
+                <div class="bg-slate-50 rounded-2xl p-3 border border-slate-200 flex flex-col justify-between space-y-3 group hover:shadow-md transition-shadow">
+                    <div class="aspect-square bg-slate-200 rounded-xl overflow-hidden relative">
+                        <img src="${img.imageUrl}" class="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform" onclick="openImageModal('${img.imageUrl}', '${escapeHtml(img.name)}')">
+                    </div>
+                    <div class="space-y-1">
+                        <p class="text-xs font-semibold text-slate-800 truncate" title="${escapeHtml(img.name)}">${escapeHtml(img.name)}</p>
+                        <div class="flex justify-between items-center text-[10px] text-slate-400">
+                            <span>${img.size}</span>
+                            <span>${new Date(img.createdAt).toLocaleDateString()}</span>
+                        </div>
+                    </div>
+                    ${(currentUser && currentUser.uid === img.userId) ? `
+                         <button type="button" onclick="deleteVaultImage('${img.id}')" class="w-full py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs font-medium transition-colors">削除</button>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        // ================= Modal Control =================
+        window.openImageModal = function(url, caption = '') {
+            document.getElementById('modal-img').src = url;
+            document.getElementById('modal-caption').innerText = caption;
+            document.getElementById('image-modal').classList.remove('hidden');
+        }
+
+        window.closeImageModal = function() {
+            document.getElementById('image-modal').classList.add('hidden');
+        }
+
+        // Boot
+        initApp();
+    </script>
+</body>
+</html>
